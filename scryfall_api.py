@@ -8,6 +8,8 @@ from os.path import basename, exists
 # Data Wrangling
 import pandas as pd
 
+import numpy as np
+
 
 class ScryfallAPI:
 
@@ -87,9 +89,10 @@ class ScryfallDataWrangler:
         self.dataset_file = dataset_file
         self.__main_card_types = ["Artifact", "Creature", "Enchantment", "Instant",
                                   "Land", "Planeswalker", "Sorcery", "Tribal"]
-        self.__cols_to_drop = []
+        self.__colors = ["W", "U", "B", "R", "G"]
+        self.__cols_to_drop = list()
 
-    def wrangle(self, include_foils=False, include_alt_arts=False, remove_unsets=True, language="English"):
+    def wrangle(self, include_foils=False, include_alt_arts=False, include_unsets=False, language="English"):
 
         with open(self.dataset_file, 'r', encoding="utf-8") as file:
             df = pd.read_json(file)
@@ -136,7 +139,7 @@ class ScryfallDataWrangler:
 
         # Drop leakage cols such as "edhrec_rank", as any information about how players or content creators evaluate
         # each card (as being "good" or "bad" in certain formats or as being sought-after and/or widely playable) will
-        # give information that the model shouldn't have in training.
+        # give information that the model shouldn't have in training
         self.__drop_leakage(df=df)
 
         # Append cols with uri info to self.__cols_to_drop
@@ -145,32 +148,43 @@ class ScryfallDataWrangler:
         # Append cols with id data to self.__cols_to_drop(except for the 'id' column)
         self.__drop_id_cols(df=df)
 
-        # Append other not usable columns to self.__cols_to_drop.
+        # Append other not usable columns to self.__cols_to_drop
         self.__drop_unusable_cols()
 
         # Drop columns with 50% + null values
         self.__drop_null_columns(df=df)
 
-        # Drop cols in self.__cols_to_drop
-
         # Create:
-        # Create col which informs if a card is legendary or not.
+        # Create col which informs if a card is legendary or not
         self.__create_is_legendary_col(df=df)
 
-        # Create type_bool_list to aid further methods.
+        # Create type_bool_list to aid further methods
         self.__create_type_bool_list(df=df)
 
-        # Create col which informs how many of the main card types each card has.
+        # Create col which informs how many of the main card types each card has
         self.__create_n_types_col(df=df)
 
         # Create cols which inform whether a card is of a certain type for each main type in Magic: the Gathering
         self.__create_bool_type_cols(df=df)
 
-        # Create col with price information in US Dollars, which will eventually be our target vector.
+        self.__create_color_bool_list(df=df)
+
+        self.__create_bool_color_cols(df=df)
+
+        self.__create_format_legal_cols(df=df)
+
+        # Create col which informs wheter a card has flavor text or not
+        self.__create_has_flavor_text_col(df=df)
+
+        # Create col with price information in US Dollars, which will eventually be our target vector
         # Append original "prices" col to self.__cols_to_drop
         self.__create_price_usd_col(df=df)
 
-        # self.__drop_cols(df=df)
+        # Drop cards whose price in usd is null
+        self.__drop_no_price_cards(df=df)
+
+        # Drop cols in self.__cols_to_drop
+        self.__drop_cols(df=df)
 
         return df
 
@@ -314,8 +328,9 @@ class ScryfallDataWrangler:
             self.__cols_to_drop.append(col)
 
     def __drop_unusable_cols(self):
-        for col in ["highres_image", "image_status", "games", "foil", "nonfoil",
-                    "finishes", "set", "artist", "border_color", "story_spotlight"]:
+        for col in ["highres_image", "image_status", "games", "foil", "nonfoil", "finishes", "set", "artist",
+                    "border_color", "story_spotlight", "power", "toughness", "oracle_text", "colors"]:
+
             self.__cols_to_drop.append(col)
 
     def __drop_null_columns(self, df):
@@ -340,10 +355,50 @@ class ScryfallDataWrangler:
                     lambda type_list: True if type_list[self.__main_card_types.index(card_type)] == 1 else False
                 )
 
+    def __create_has_flavor_text_col(self, df):
+        df["has_flavor_text"] = np.invert(df["flavor_text"].isna())
+
+        self.__cols_to_drop.append("flavor_text")
+
     def __create_price_usd_col(self, df):
-        df["price_usd"] = pd.json_normalize(df["prices"])["usd"]
+        df["price_usd"] = (df["prices"].apply(lambda price_dict: price_dict["usd"])).astype(float)
 
         self.__cols_to_drop.append("prices")
 
+    def __create_color_bool_list(self, df):
+        df["color_bool_list"] = df["color_identity"].apply(
+            lambda color_id: [1 if color in color_id else 0 for color in self.__colors]
+        )
+
+    def __create_bool_color_cols(self, df):
+        color_dict = {
+            "W": "white",
+            "U": "blue",
+            "B": "black",
+            "R": "red",
+            "G": "green"
+        }
+
+        for color in self.__colors:
+            df[f"is_{color_dict[color]}"] = df["color_bool_list"].apply(
+                lambda color_list: True if color_list[self.__colors.index(color)] == 1 else False
+            )
+
+        df["is_colorless"] = df["color_bool_list"].apply(lambda color_list: True if sum(color_list) == 0 else False)
+
+    def __create_format_legal_cols(self, df):
+        legalities_keys = dict(df["legalities"].iloc[0]).keys()
+
+        for play_format in legalities_keys:
+            df[f"{play_format}_legal"] = df["legalities"].apply(lambda format_dict: dict(format_dict)[play_format])
+
+    def __drop_no_price_cards(self, df):
+        no_price_cards = df[df["price_usd"].isna()]
+
+        df.drop(index=no_price_cards.index, inplace=True)
+
     def __drop_cols(self, df):
-        df.drop(columns = self.__cols_to_drop, inplace=True)
+
+        for col in self.__cols_to_drop:
+            if col in df.columns:
+                df.drop(columns=col, inplace=True)
