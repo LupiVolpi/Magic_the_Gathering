@@ -2,13 +2,13 @@
 import requests
 
 # Request Wrangling
+import numpy as np
+import re
 import os
 from os.path import basename, exists
 
 # Data Wrangling
 import pandas as pd
-
-import numpy as np
 
 
 class ScryfallAPI:
@@ -134,6 +134,12 @@ class ScryfallDataWrangler:
         # Drop full-art cards and append 'full_art' col to self.__cols_to_drop
         self.__drop_full_art_cards(df=df)
 
+        # Drop duplicated modal_dfc cards by criteria
+        self.__drop_duplicated_mdfc_cards(df=df)
+
+        # Drop cards with "special" rarity
+        self.__drop_special_rarity_cards(df=df)
+
         # Drop cols containing only 1 value among all observations
         self.__drop_low_car_cols(df=df)
 
@@ -152,7 +158,7 @@ class ScryfallDataWrangler:
         self.__drop_unusable_cols()
 
         # Drop columns with 50% + null values
-        self.__drop_null_columns(df=df)
+        self.__drop_null_cols(df=df)
 
         # Create:
         # Create col which informs if a card is legendary or not
@@ -167,14 +173,27 @@ class ScryfallDataWrangler:
         # Create cols which inform whether a card is of a certain type for each main type in Magic: the Gathering
         self.__create_bool_type_cols(df=df)
 
+        # Create color_bool_list to aid further methods
         self.__create_color_bool_list(df=df)
 
+        # Create cols which inform whether a card is of a certain color (or colorless)
+        # for each color in Magic: the Gathering
         self.__create_bool_color_cols(df=df)
 
+        # Create n_restricted_mana to aid further methods
+        self.__create_n_restricted_mana(df=df)
+
+        # Create col which informs, in %, how much of a card's mana cost is restricted mana.
+        self.__create_restricted_mana_col(df=df)
+
+        # Create cols which inform whether a card is legal, not legal, restricted or banned in each play format.
         self.__create_format_legal_cols(df=df)
 
         # Create col which informs wheter a card has flavor text or not
         self.__create_has_flavor_text_col(df=df)
+
+        # Ceate col which informs how many keyword abilities a card has.
+        self.__create_n_keywords_col(df=df)
 
         # Create col with price information in US Dollars, which will eventually be our target vector
         # Append original "prices" col to self.__cols_to_drop
@@ -185,6 +204,12 @@ class ScryfallDataWrangler:
 
         # Drop cols in self.__cols_to_drop
         self.__drop_cols(df=df)
+
+        # Sort cards by release date ascending
+        self.__sort_values_by_release_date(df=df)
+
+        # Organise columns
+        # df.
 
         return df
 
@@ -293,6 +318,16 @@ class ScryfallDataWrangler:
 
         self.__cols_to_drop.append("full_art")
 
+    def __drop_duplicated_mdfc_cards(self, df):
+        duplicated_modal_dfc = df[(df["layout"] == "modal_dfc") & (df["booster"] == False)]
+
+        df.drop(index=duplicated_modal_dfc.index, inplace=True)
+
+    def __drop_special_rarity_cards(self, df):
+        special_rarity_cards = df[df["rarity"] == "special"]
+
+        df.drop(index=special_rarity_cards.index, inplace=True)
+
     def __drop_low_car_cols(self, df):
         list_dict_cols = []
 
@@ -329,11 +364,16 @@ class ScryfallDataWrangler:
 
     def __drop_unusable_cols(self):
         for col in ["highres_image", "image_status", "games", "foil", "nonfoil", "finishes", "set", "artist",
-                    "border_color", "story_spotlight", "power", "toughness", "oracle_text", "colors"]:
+                    "border_color", "story_spotlight", "power", "toughness", "oracle_text", "colors",
+
+                    "n_restricted_mana", "mana_cost", "color_identity", "keywords", "legalities", "type_bool_list",
+                    "color_bool_list", "restricted_mana",
+
+                    "id", "name", "type_line"]:
 
             self.__cols_to_drop.append(col)
 
-    def __drop_null_columns(self, df):
+    def __drop_null_cols(self, df):
         null_values_columns = [column for column in df.columns if df[column].isnull().sum() >= (df.shape[0] * 0.5)]
 
         df.drop(columns=null_values_columns, inplace=True)
@@ -359,6 +399,9 @@ class ScryfallDataWrangler:
         df["has_flavor_text"] = np.invert(df["flavor_text"].isna())
 
         self.__cols_to_drop.append("flavor_text")
+
+    def __create_n_keywords_col(self, df):
+        df["n_keywords"] = df["keywords"].apply(lambda key_list: len(list(key_list)))
 
     def __create_price_usd_col(self, df):
         df["price_usd"] = (df["prices"].apply(lambda price_dict: price_dict["usd"])).astype(float)
@@ -386,6 +429,18 @@ class ScryfallDataWrangler:
 
         df["is_colorless"] = df["color_bool_list"].apply(lambda color_list: True if sum(color_list) == 0 else False)
 
+    def __create_n_restricted_mana(self, df):
+        df["mana_cost"].fillna("{0}", inplace=True)
+
+        df["n_restricted_mana"] = df["mana_cost"].apply(
+            lambda mana_cost: len(re.findall("\{.*?[WUBRG].*?\}", mana_cost))
+        )
+
+    def __create_restricted_mana_col(self, df):
+        df["restricted_mana"] = df.apply(
+            lambda data_frame: data_frame.n_restricted_mana / data_frame.cmc if data_frame.cmc != 0 else 0, axis=1
+        )
+
     def __create_format_legal_cols(self, df):
         legalities_keys = dict(df["legalities"].iloc[0]).keys()
 
@@ -402,3 +457,7 @@ class ScryfallDataWrangler:
         for col in self.__cols_to_drop:
             if col in df.columns:
                 df.drop(columns=col, inplace=True)
+
+    def __sort_values_by_release_date(self, df):
+        df.sort_values(by="released_at", ascending=True, inplace=True)
+
