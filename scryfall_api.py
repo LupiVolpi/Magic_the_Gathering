@@ -92,61 +92,114 @@ class ScryfallDataWrangler:
         self.__colors = ["W", "U", "B", "R", "G"]
         self.__cols_to_drop = list()
 
-    def wrangle(self, include_foils=False, include_alt_arts=False, include_unsets=False, language="English"):
+    def wrangle(self, clean=True, create_new_cols=True, include_foils=False, include_alt_arts=False, include_unsets=False, language="English"):
 
         with open(self.dataset_file, 'r', encoding="utf-8") as file:
             df = pd.read_json(file)
 
-        # Drop:
-        # Drop reprint cards and append 'reprint' col to self.__cols_to_drop
-        self.__drop_reprints(df=df)
+        if clean:
+            # Drop:
+            # Drop reprint cards and append 'reprint' col to self.__cols_to_drop
+            self.__drop_reprints(df=df)
 
-        # Drop Basic Lands
-        self.__drop_basic_lands(df=df)
+            # Drop Basic Lands
+            self.__drop_basic_lands(df=df)
 
-        # Drop Tokens
-        self.__drop_tokens(df=df)
+            # Drop Tokens
+            self.__drop_tokens(df=df)
 
-        # Drop 'Un' set cards and other silver-bordered cards
-        self.__drop_un_sets(df=df)
+            # Drop 'Un' set cards and other silver-bordered cards
+            self.__drop_un_sets(df=df)
 
-        # Drop digital cards and append 'digital' col to self.__cols_to_drop
-        self.__drop_digital_cards(df=df)
+            # Drop digital cards and append 'digital' col to self.__cols_to_drop
+            self.__drop_digital_cards(df=df)
 
-        # Drop cards that are on The Reserved List and append 'reserved' col to self.__cols_to_drop
-        self.__drop_reserved_list(df=df)
+            # Drop cards that are on The Reserved List and append 'reserved' col to self.__cols_to_drop
+            self.__drop_reserved_list(df=df)
 
-        # Drop cards in any other language than English and append 'lang' col to self.__cols_to_drop
-        self.__drop_languages(df=df)
+            # Drop cards in any other language than English and append 'lang' col to self.__cols_to_drop
+            self.__drop_languages(df=df)
 
-        # Drop oversized cards and append 'oversized' col to self.__cols_to_drop
-        self.__drop_oversized_cards(df=df)
+            # Drop oversized cards and append 'oversized' col to self.__cols_to_drop
+            self.__drop_oversized_cards(df=df)
 
-        # Drop promo cards and append 'promo' col to self.__cols_to_drop
-        self.__drop_promo_cards(df=df)
+            # Drop promo cards and append 'promo' col to self.__cols_to_drop
+            self.__drop_promo_cards(df=df)
 
-        # Drop variation cards and append 'variation' col to self.__cols_to_drop
-        self.__drop_variation_cards(df=df)
+            # Drop variation cards and append 'variation' col to self.__cols_to_drop
+            self.__drop_variation_cards(df=df)
 
-        # Drop memorabilia cards
-        self.__drop_memorabilia(df=df)
+            # Drop memorabilia cards
+            self.__drop_memorabilia(df=df)
 
-        # Drop full-art cards and append 'full_art' col to self.__cols_to_drop
-        self.__drop_full_art_cards(df=df)
+            # Drop full-art cards and append 'full_art' col to self.__cols_to_drop
+            self.__drop_full_art_cards(df=df)
 
-        # Drop duplicated modal_dfc cards by criteria
-        self.__drop_duplicated_mdfc_cards(df=df)
+            # Drop duplicated modal_dfc cards by criteria
+            self.__drop_duplicated_mdfc_cards(df=df)
 
-        # Drop cards with "special" rarity
-        self.__drop_special_rarity_cards(df=df)
+            # Drop cards with "special" rarity
+            self.__drop_special_rarity_cards(df=df)
+
+            # Drop leakage cols such as "edhrec_rank", as any information about how players or content creators evaluate
+            # each card (as being "good" or "bad" in certain formats or as being sought-after and/or widely playable) will
+            # give information that the model shouldn't have in training
+            self.__drop_leakage(df=df)
+
+            # Append other not usable columns to self.__cols_to_drop
+            self.__drop_unusable_cols()
+
+            # Drop columns with 50% + null values
+            self.__drop_null_cols(df=df)
+
+            # Drop cards whose price in usd is null
+            self.__drop_no_price_cards(df=df)
+
+        if create_new_cols:
+            # Create:
+            # Create col which informs if a card is legendary or not
+            self.__create_is_legendary_col(df=df)
+
+            # Create type_bool_list to aid further methods
+            self.__create_type_bool_list(df=df)
+
+            # Create col which informs how many of the main card types each card has
+            self.__create_n_types_col(df=df)
+
+            # Create cols which inform whether a card is of a certain type for each main type in Magic: the Gathering
+            self.__create_bool_type_cols(df=df)
+
+            # Create color_bool_list to aid further methods
+            self.__create_color_bool_list(df=df)
+
+            # Create col which informs how many cards
+            self.__create_n_colors_col(df=df)
+
+            # Create cols which inform whether a card is of a certain color (or colorless)
+            # for each color in Magic: the Gathering
+            self.__create_bool_color_cols(df=df)
+
+            # Create n_restricted_mana to aid further methods
+            self.__create_n_restricted_mana(df=df)
+
+            # Create col which informs, in %, how much of a card's mana cost is restricted mana.
+            self.__create_restricted_mana_col(df=df)
+
+            # Create cols which inform whether a card is legal, not legal, restricted or banned in each play format.
+            self.__create_format_legal_cols(df=df)
+
+            # Create col which informs wheter a card has flavor text or not
+            self.__create_has_flavor_text_col(df=df)
+
+            # Ceate col which informs how many keyword abilities a card has.
+            self.__create_n_keywords_col(df=df)
+
+            # Create col with price information in US Dollars, which will eventually be our target vector
+            # Append original "prices" col to self.__cols_to_drop
+            self.__create_price_usd_col(df=df)
 
         # Drop cols containing only 1 value among all observations
-        self.__drop_low_car_cols(df=df)
-
-        # Drop leakage cols such as "edhrec_rank", as any information about how players or content creators evaluate
-        # each card (as being "good" or "bad" in certain formats or as being sought-after and/or widely playable) will
-        # give information that the model shouldn't have in training
-        self.__drop_leakage(df=df)
+        self.__drop_list_dict_cols(df=df)
 
         # Append cols with uri info to self.__cols_to_drop
         self.__drop_uri_cols(df=df)
@@ -154,56 +207,9 @@ class ScryfallDataWrangler:
         # Append cols with id data to self.__cols_to_drop(except for the 'id' column)
         self.__drop_id_cols(df=df)
 
-        # Append other not usable columns to self.__cols_to_drop
-        self.__drop_unusable_cols()
-
-        # Drop columns with 50% + null values
-        self.__drop_null_cols(df=df)
-
-        # Create:
-        # Create col which informs if a card is legendary or not
-        self.__create_is_legendary_col(df=df)
-
-        # Create type_bool_list to aid further methods
-        self.__create_type_bool_list(df=df)
-
-        # Create col which informs how many of the main card types each card has
-        self.__create_n_types_col(df=df)
-
-        # Create cols which inform whether a card is of a certain type for each main type in Magic: the Gathering
-        self.__create_bool_type_cols(df=df)
-
-        # Create color_bool_list to aid further methods
-        self.__create_color_bool_list(df=df)
-
-        # Create cols which inform whether a card is of a certain color (or colorless)
-        # for each color in Magic: the Gathering
-        self.__create_bool_color_cols(df=df)
-
-        # Create n_restricted_mana to aid further methods
-        self.__create_n_restricted_mana(df=df)
-
-        # Create col which informs, in %, how much of a card's mana cost is restricted mana.
-        self.__create_restricted_mana_col(df=df)
-
-        # Create cols which inform whether a card is legal, not legal, restricted or banned in each play format.
-        self.__create_format_legal_cols(df=df)
-
-        # Create col which informs wheter a card has flavor text or not
-        self.__create_has_flavor_text_col(df=df)
-
-        # Ceate col which informs how many keyword abilities a card has.
-        self.__create_n_keywords_col(df=df)
-
-        # Create col with price information in US Dollars, which will eventually be our target vector
-        # Append original "prices" col to self.__cols_to_drop
-        self.__create_price_usd_col(df=df)
-
-        # Drop cards whose price in usd is null
-        self.__drop_no_price_cards(df=df)
-
         # Drop cols in self.__cols_to_drop
-        self.__drop_cols(df=df)
+        cleaned_drop_cols = []
+        self.__clean_drop_cols(df=df, cleaned_drop_cols=cleaned_drop_cols)
 
         # Sort cards by release date ascending
         self.__sort_values_by_release_date(df=df)
@@ -211,7 +217,7 @@ class ScryfallDataWrangler:
         # Organise columns
         # df.
 
-        return df
+        return df.drop(columns=cleaned_drop_cols)
 
     def __drop_reprints(self, df):
         reprints = df[df["reprint"] == True]
@@ -328,21 +334,10 @@ class ScryfallDataWrangler:
 
         df.drop(index=special_rarity_cards.index, inplace=True)
 
-    def __drop_low_car_cols(self, df):
-        list_dict_cols = []
-
+    def __drop_list_dict_cols(self, df):
         for column in df.columns:
-            if type(df[column].iloc[0]) == list or type(df[column].iloc[0]) == dict:
-                list_dict_cols.append(column)
-
-        low_car_cols = []
-
-        for column in df.drop(columns=list_dict_cols).columns:
-            if df[column].value_counts(normalize=True).shape[0] == 1:
-                low_car_cols.append(column)
-
-        for col in low_car_cols:
-            self.__cols_to_drop.append(col)
+            if type(df[column].dropna().iloc[0]) == list or type(df[column].dropna().iloc[0]) == dict:
+                self.__cols_to_drop.append(column)
 
     def __drop_leakage(self, df):
         leakage = ["edhrec_rank", "penny_rank", "collector_number"]
@@ -367,7 +362,7 @@ class ScryfallDataWrangler:
                     "border_color", "story_spotlight", "power", "toughness", "oracle_text", "colors",
 
                     "n_restricted_mana", "mana_cost", "color_identity", "keywords", "legalities", "type_bool_list",
-                    "color_bool_list", "restricted_mana",
+                    "color_bool_list", "n_restricted_mana",
 
                     "id", "name", "type_line"]:
 
@@ -379,6 +374,7 @@ class ScryfallDataWrangler:
         df.drop(columns=null_values_columns, inplace=True)
 
     def __create_is_legendary_col(self, df):
+        df["type_line"].fillna(value="", inplace=True)
         df["is_legendary"] = df["type_line"].apply(lambda card_type: True if "Legendary" in card_type else False)
 
     def __create_type_bool_list(self, df):
@@ -412,6 +408,9 @@ class ScryfallDataWrangler:
         df["color_bool_list"] = df["color_identity"].apply(
             lambda color_id: [1 if color in color_id else 0 for color in self.__colors]
         )
+
+    def __create_n_colors_col(self, df):
+        df["n_colors"] = df["color_bool_list"].apply(lambda color_list: sum(color_list))
 
     def __create_bool_color_cols(self, df):
         color_dict = {
@@ -452,11 +451,11 @@ class ScryfallDataWrangler:
 
         df.drop(index=no_price_cards.index, inplace=True)
 
-    def __drop_cols(self, df):
+    def __clean_drop_cols(self, df, cleaned_drop_cols):
 
         for col in self.__cols_to_drop:
             if col in df.columns:
-                df.drop(columns=col, inplace=True)
+                cleaned_drop_cols.append(col)
 
     def __sort_values_by_release_date(self, df):
         df.sort_values(by="released_at", ascending=True, inplace=True)
